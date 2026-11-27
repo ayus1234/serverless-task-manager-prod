@@ -1,0 +1,187 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: #f5f6fa;
+  color: #2d3436;
+}
+
+.app {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+}
+
+header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+}
+
+header p {
+  margin: 0 0 24px;
+  color: #636e72;
+  font-size: 14px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: #fff;
+  padding: 18px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.form input,
+.form textarea,
+.form select {
+  padding: 10px;
+  border: 1px solid #dfe6e9;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.form textarea {
+  resize: vertical;
+  min-height: 70px;
+}
+
+.form button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #0984e3;
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.form button:hover {
+  background: #0b77d6;
+}
+
+.form button[type='button'] {
+  background: #b2bec3;
+}
+
+.form button[type='button']:hover {
+  background: #96a1a8;
+}
+
+.error {
+  color: #d63031;
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+.task-list {
+  list-style: none;
+  padding: 0;
+  margin: 20px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background: #fff;
+  padding: 14px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.status-todo,
+.status-in-progress,
+.status-done {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  text-transform: lowercase;
+}
+
+.status-todo {
+  background: #fdcb6e;
+  color: #2d3436;
+}
+
+.status-in-progress {
+  background: #0984e3;
+}
+
+.status-done {
+  background: #00b894;
+}
+
+.task-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-body h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.task-body p {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: #636e72;
+}
+
+.meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: #636e72;
+}
+
+.pri-low {
+  color: #00b894;
+}
+
+.pri-medium {
+  color: #2d3436;
+}
+
+.pri-high {
+  color: #d63031;
+}
+
+.date {
+  color: #b2bec3;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.actions button {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: #f1f2f3;
+  color: #2d3436;
+  border-radius: 6px;
+}
+
+.actions button:hover {
+  background: #dfe6e9;
+}
+
+.empty {
+  color: #636e72;
+  text-align: center;
+  margin-top: 24px;
+}

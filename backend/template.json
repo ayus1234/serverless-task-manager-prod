@@ -1,0 +1,368 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Micro-project serverless backend",
+  "Resources": {
+    "MyTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "MyMicroProjectTable",
+        "AttributeDefinitions": [
+          { "AttributeName": "id", "AttributeType": "S" }
+        ],
+        "KeySchema": [
+          { "AttributeName": "id", "KeyType": "HASH" }
+        ],
+        "BillingMode": "PAY_PER_REQUEST"
+      }
+    },
+    "MyLambdaFunction": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "MyMicroProjectFunction",
+        "Handler": "lambda_function.lambda_handler",
+        "Role": { "Fn::GetAtt": ["LambdaExecutionRole", "Arn"] },
+        "Runtime": "python3.13",
+        "Timeout": 15,
+        "MemorySize": 256,
+        "Code": {
+          "ZipFile": "import json\nimport os\nimport uuid\nfrom datetime import datetime, timezone\n\nimport boto3\n\nTABLE_NAME = os.environ.get(\"TABLE_NAME\", \"MyMicroProjectTable\")\ndynamodb = boto3.resource(\"dynamodb\")\ntable = dynamodb.Table(TABLE_NAME)\n\n\ndef _resp(status_code, body):\n    return {\n        \"statusCode\": status_code,\n        \"headers\": {\n            \"Content-Type\": \"application/json\",\n            \"Access-Control-Allow-Origin\": \"*\",\n            \"Access-Control-Allow-Methods\": \"GET,POST,PUT,DELETE,OPTIONS\",\n            \"Access-Control-Allow-Headers\": \"Content-Type\",\n        },\n        \"body\": json.dumps(body),\n    }\n\n\ndef _path_params(event):\n    return event.get(\"pathParameters\") or {}\n\n\ndef _body(event):\n    raw = event.get(\"body\")\n    if not raw:\n        return {}\n    if isinstance(raw, dict):\n        return raw\n    try:\n        return json.loads(raw)\n    except (json.JSONDecodeError, TypeError):\n        return {}\n\n\ndef create_task(data):\n    task_id = data.get(\"id\") or str(uuid.uuid4())\n    now = datetime.now(timezone.utc).isoformat()\n    item = {\n        \"id\": task_id,\n        \"title\": data.get(\"title\", \"Untitled task\"),\n        \"description\": data.get(\"description\", \"\"),\n        \"status\": data.get(\"status\", \"todo\"),\n        \"priority\": data.get(\"priority\", \"medium\"),\n        \"createdAt\": now,\n        \"updatedAt\": now,\n    }\n    table.put_item(Item=item)\n    return item\n\n\ndef list_tasks():\n    result = table.scan()\n    items = result.get(\"Items\", [])\n    items.sort(key=lambda x: x.get(\"createdAt\", \"\"), reverse=True)\n    return {\"items\": items, \"count\": len(items)}\n\n\ndef get_task(task_id):\n    result = table.get_item(Key={\"id\": task_id})\n    item = result.get(\"Item\")\n    if not item:\n        return None\n    return item\n\n\ndef update_task(task_id, data):\n    existing = get_task(task_id)\n    if not existing:\n        return None\n    now = datetime.now(timezone.utc).isoformat()\n    item = dict(existing)\n    item.update({\n        \"title\": data.get(\"title\", item.get(\"title\")),\n        \"description\": data.get(\"description\", item.get(\"description\")),\n        \"status\": data.get(\"status\", item.get(\"status\")),\n        \"priority\": data.get(\"priority\", item.get(\"priority\")),\n        \"updatedAt\": now,\n    })\n    table.put_item(Item=item)\n    return item\n\n\ndef delete_task(task_id):\n    table.delete_item(Key={\"id\": task_id})\n    return {\"id\": task_id, \"deleted\": True}\n\n\ndef lambda_handler(event, context):\n    try:\n        method = (event.get(\"httpMethod\") or \"\").upper()\n        params = _path_params(event)\n        data = _body(event)\n\n        if method == \"OPTIONS\":\n            return _resp(200, {\"ok\": True})\n\n        if method == \"POST\" and not params.get(\"id\"):\n            return _resp(201, create_task(data))\n\n        if method == \"GET\" and not params.get(\"id\"):\n            return _resp(200, list_tasks())\n\n        if method == \"GET\" and params.get(\"id\"):\n            item = get_task(params[\"id\"])\n            if item is None:\n                return _resp(404, {\"error\": \"task not found\"})\n            return _resp(200, item)\n\n        if method == \"PUT\" and params.get(\"id\"):\n            item = update_task(params[\"id\"], data)\n            if item is None:\n                return _resp(404, {\"error\": \"task not found\"})\n            return _resp(200, item)\n\n        if method == \"DELETE\" and params.get(\"id\"):\n            delete_task(params[\"id\"])\n            return _resp(200, {\"id\": params[\"id\"], \"deleted\": True})\n\n        return _resp(400, {\"error\": \"unsupported route\", \"method\": method, \"path\": event.get(\"path\")})\n    except Exception as exc:\n        return _resp(500, {\"error\": \"internal error\", \"detail\": str(exc)})"
+        }
+      }
+    },
+    "LambdaExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "lambda.amazonaws.com" },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "Policies": [
+          {
+            "PolicyName": "LambdaDynamoDBAccess",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:Scan",
+                    "dynamodb:DeleteItem"
+                  ],
+                  "Resource": { "Fn::GetAtt": ["MyTable", "Arn"] }
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "LambdaBasicExecution",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "ApiGatewayRestApi": {
+      "Type": "AWS::ApiGateway::RestApi",
+      "Properties": {
+        "Name": "MyMicroProjectApi",
+        "Description": "API Gateway for micro-project Lambda",
+        "EndpointConfiguration": {
+          "Types": ["REGIONAL"]
+        }
+      }
+    },
+    "ApiGatewayTasksResource": {
+      "Type": "AWS::ApiGateway::Resource",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ParentId": { "Fn::GetAtt": ["ApiGatewayRestApi", "RootResourceId"] },
+        "PathPart": "tasks"
+      }
+    },
+    "ApiGatewayTaskByIdResource": {
+      "Type": "AWS::ApiGateway::Resource",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ParentId": { "Ref": "ApiGatewayTasksResource" },
+        "PathPart": "{id}"
+      }
+    },
+    "ApiGatewayPostMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ResourceId": { "Ref": "ApiGatewayTasksResource" },
+        "HttpMethod": "POST",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "AWS_PROXY",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations"
+          }
+        }
+      }
+    },
+    "ApiGatewayGetAllMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ResourceId": { "Ref": "ApiGatewayTasksResource" },
+        "HttpMethod": "GET",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "AWS_PROXY",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations"
+          }
+        }
+      }
+    },
+    "ApiGatewayGetOneMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ResourceId": { "Ref": "ApiGatewayTaskByIdResource" },
+        "HttpMethod": "GET",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "AWS_PROXY",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations"
+          }
+        }
+      }
+    },
+    "ApiGatewayPutMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ResourceId": { "Ref": "ApiGatewayTaskByIdResource" },
+        "HttpMethod": "PUT",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "AWS_PROXY",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations"
+          }
+        }
+      }
+    },
+    "ApiGatewayDeleteMethod": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ResourceId": { "Ref": "ApiGatewayTaskByIdResource" },
+        "HttpMethod": "DELETE",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "AWS_PROXY",
+          "IntegrationHttpMethod": "POST",
+          "Uri": {
+            "Fn::Sub": "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations"
+          }
+        }
+      }
+    },
+    "ApiGatewayOptionsMethodTasks": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ResourceId": { "Ref": "ApiGatewayTasksResource" },
+        "HttpMethod": "OPTIONS",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "MOCK",
+          "IntegrationResponses": [
+            {
+              "StatusCode": 200,
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type'"
+              }
+            }
+          ],
+          "RequestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": 200,
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Headers": true
+            }
+          }
+        ]
+      }
+    },
+    "ApiGatewayOptionsMethodTaskById": {
+      "Type": "AWS::ApiGateway::Method",
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "ResourceId": { "Ref": "ApiGatewayTaskByIdResource" },
+        "HttpMethod": "OPTIONS",
+        "AuthorizationType": "NONE",
+        "Integration": {
+          "Type": "MOCK",
+          "IntegrationResponses": [
+            {
+              "StatusCode": 200,
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Origin": "'*'",
+                "method.response.header.Access-Control-Allow-Methods": "'GET,POST,PUT,DELETE,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type'"
+              }
+            }
+          ],
+          "RequestTemplates": {
+            "application/json": "{\"statusCode\": 200}"
+          }
+        },
+        "MethodResponses": [
+          {
+            "StatusCode": 200,
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Headers": true
+            }
+          }
+        ]
+      }
+    },
+    "ApiGatewayDeployment": {
+      "Type": "AWS::ApiGateway::Deployment",
+      "DependsOn": [
+        "ApiGatewayPostMethod",
+        "ApiGatewayGetAllMethod",
+        "ApiGatewayGetOneMethod",
+        "ApiGatewayPutMethod",
+        "ApiGatewayDeleteMethod",
+        "ApiGatewayOptionsMethodTasks",
+        "ApiGatewayOptionsMethodTaskById"
+      ],
+      "Properties": {
+        "RestApiId": { "Ref": "ApiGatewayRestApi" },
+        "StageName": "prod"
+      }
+    },
+    "LambdaPermissionPost": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "MyLambdaFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/POST/tasks"
+        }
+      }
+    },
+    "LambdaPermissionGetAll": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "MyLambdaFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/GET/tasks"
+        }
+      }
+    },
+    "LambdaPermissionGetOne": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "MyLambdaFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/GET/tasks/*"
+        }
+      }
+    },
+    "LambdaPermissionPut": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "MyLambdaFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/PUT/tasks/*"
+        }
+      }
+    },
+    "LambdaPermissionDelete": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "MyLambdaFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/DELETE/tasks/*"
+        }
+      }
+    },
+    "LambdaPermissionOptionsTasks": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "MyLambdaFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/OPTIONS/tasks"
+        }
+      }
+    },
+    "LambdaPermissionOptionsTaskById": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "MyLambdaFunction" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Sub": "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGatewayRestApi}/*/OPTIONS/tasks/*"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ApiEndpoint": {
+      "Description": "API Gateway endpoint URL",
+      "Value": { "Fn::Sub": "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/tasks" }
+    },
+    "TableName": {
+      "Description": "DynamoDB table name",
+      "Value": { "Ref": "MyTable" }
+    },
+    "LambdaFunctionName": {
+      "Description": "Lambda function name",
+      "Value": { "Ref": "MyLambdaFunction" }
+    }
+  }
+}
